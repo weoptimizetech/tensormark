@@ -1,0 +1,226 @@
+ANE layer-split (fused segment) — measured verdict
+====================================================
+Date: 2026-09-11  (follows ane_numerics_gate.txt and the c2d508f blocker note)
+Machine: M1, 8 GB unified memory, macOS 26
+Model: TinyLlama-1.1B, real TMQ Q4_0 weights dequantized to fp16,
+       S=1024-token prefill, numpy fp32 chain as reference.
+
+Supersedes two earlier beliefs
+------------------------------
+1. "Fused single-graph ANE is blocked on coremltools blob-offset semantics"
+   (c2d508f) — WRONG. A single-process ct.convert of a traced 22-layer torch
+   module (weights streamed per-layer, ~88 MB peak extra) produces a
+   coremltools-serialized package that loads and runs on ANE. The blob-offset
+   problem only afflicts hand-packed weight.bin files.
+
+2. "Chained ANE is ~151 ms/layer => fused ≈ 308 tok/s" (39ac1c2) — the 151 ms
+   was ~85% per-predict dispatch overhead, not compute. Fused per-layer
+   compute is ~29 ms.
+
+The hard wall that IS real: ANE graph size
+------------------------------------------
+- fused 22-layer package: ANE compile fails (error code -14), reproducible
+  with 14 GB free; N16 control compiled and ran fine at the same free memory.
+  => hard M1 ANE compiler graph/weight-size limit, not resources.
+- fp32 masked-softmax sandwich inside the graph also blocked ANE compile;
+  bias-causal fp16 mask compiles (N8/N10/N12/N16 all OK).
+
+Measured (bg_124, /tmp/fused_ct_biasN16.mlpackage)
+--------------------------------------------------
+ANE fused 16 layers: 462 ms median (460-484) = 2218 tok/s @1024.
+Numerics vs CPU-same-graph: rel RMS 1.39e-1, finite,
+top-1 agreement 83.3%, logit corr 0.996 (fp16-dirty, same class as chain).
+Kernel-per-function 22-predict chain re-measured: 66 tok/s (dispatch-bound).
+
+The production shape: LAYER SPLIT
+---------------------------------
+fused ANE L0-15  ->  GPU L16-21  ->  fp32 lm_head
+(/tmp/last6_gpu.mlpackage, ct-serialized, real weights)
+
+  segment ANE  -> last6 GPU: top-1 vs fp32 ref 94.9%, rel RMS 1.09e-1
+  segment CPU  -> last6 GPU: top-1 99.2%, rel RMS 1.6e-2  (control)
+
+The fused segment is CLEANER than 22 chained predicts (2 serialization
+points instead of 22): final top-1 94.9% BEATS the chained 92.5% despite the
+segment's own 83.3% mid-graph agreement.
+
+  wall: 462 ms (ANE seg) + 386 ms (last6 GPU package) = 848 ms @1024
+      = 1208 tok/s  (+42% vs GPU-only 850 tok/s)
+
+In-engine upside: the last6 GPU *package* costs 386 ms while the engine's own
+GPU path runs ~29 ms/layer (~174 ms for 6 layers). If the engine ingests the
+ANE hidden directly, the projected wall is ~636 ms ≈ 1610 tok/s (+89% vs
+GPU-only) — this requires a hidden-state segment handoff in the engine and an
+ESC-controller extension to a third unit (standing design goal).
+
+Token-split concurrency is impossible for the fused segment (depth mismatch:
+the GPU cannot start L16 before the ANE finishes L15). Layer-split is
+sequential; the 1368 tok/s token-split sweep number does not compose with it.
+
+artifacts (this machine, /tmp, volatile):
+  fused_ct_biasN16.mlpackage   fused ANE 16-layer, ct-serialized
+  last6_gpu.mlpackage          GPU L16-21, ct-serialized
+  n16_fused_{ane,cpu}_out.npy  segment outputs
+  last6_build.py               builder + end-to-end gate
+  full_ref.npz                 numpy fp32 22-layer reference
+
+next: engine integration (TMQ -> anepack build of the two segment packages,
+hidden-state handoff, ESC controller third unit) + speculative-decoding fit
+(ANE fp16-dirty profile is exactly a draft-model profile).
+
+Integration correction (2026-09-11)
+-----------------------------------
+The measurements above concern separate experimental CoreML packages, NOT a
+validated in-engine prefill/decode integration. In particular, 2218 tok/s is
+only the first 16 layers; it must not be compared directly to whole-engine
+throughput. The serving goal remains independent-lane aggregate capacity,
+not replacing or degrading the exact CPU/GPU lane.
+
+The early bench_ane_split runs reporting 325-372 tok/s and exactly zero logit
+difference did not establish ANE execution. The shim still required an output
+named h at open, although hidden-only outputs retained their traced name.
+The benchmark also set TM_ANE=0 AFTER model load, too late to disable an
+already-open segment for its reference. Both issues are corrected; the
+benchmark now requires its successful-ANE counter to advance in every round,
+checks all logits for finiteness, and exits nonzero on setup refusal/fallback.
+Its difference/top-1 metrics are observations, NOT a quality-equivalence gate.
+
+The claim that explicit output renaming caused ANE inference error 0x16 was
+premature: the unnamed-output package also failed direct CoreML prediction
+(bg_160). Comparing with /tmp/ane_bias_build.py found a graph mismatch:
+anepack used fp32 masked_fill + softmax, whereas the successful graph used
+a finite fp16 additive causal bias (-30000) and fp16 softmax. The builder now
+matches the latter. Its cache key includes builder source and config contents
+to avoid reusing a package from a different graph revision. Model identity
+still uses filename/size/mtime, not a full weight-content hash.
+
+Other corrected integration contracts:
+  - Source .mlpackage loading uses compileModelAtURL's returned URL.
+  - Hidden output lookup supports an arbitrary single traced name; KV outputs
+    remain explicitly named h/k_i/v_i, with shape (KVH,T,dh).
+  - The shim checks fp16 types/shapes, respects MLMultiArray strides, rejects
+    nonfinite outputs, and reports KV dimensions for engine buffer validation.
+  - Fixed-position packages only run at cache base zero. They have neither
+    past-K/V inputs nor position-offset inputs for chunked continuation.
+  - Hidden-only K projection uses the per-head RoPE helper; calling rope_qk
+    with a null query buffer was invalid and crashed the dispatch regression.
+
+IMPORTANT: final hidden after layer K cannot reconstruct each earlier layer's
+true K/V. Reprojecting all layers from it is a separate approximation, not
+merely fp16 rounding. Hidden-only integration requires TM_ANE_APPROX_KV=1;
+it is experimental, and must not be advertised as exact-cache inference or
+used for unverified speculative-token acceptance. The KV-emitting path exports
+the actual segment K/V, but large-shape ANE support must be tested separately.
+
+Regression commands (macOS; CoreML/torch venv required for Python tests):
+  /tmp/ane2/bin/python -m unittest discover -s tools/tests -p 'test_ane*.py' -v
+  cd tensormark && ./build_llama.sh
+  ./build/test_ane_dispatch data/tinyllama/tinyllama_q40.tmq
+
+Full-package execution probe (not an aggregate-capacity benchmark):
+  TM_ANE=1 TM_ANE_APPROX_KV=1 TM_ANE_PATH=<package.mlpackage> \
+    TM_DEBUG_ANE=1 TM_DECODE_GPU=0 TM_PREFILL_GPU=0 \
+    ./build/bench_ane_split data/tinyllama/tinyllama_q40.tmq 1024 3
+
+Historical execution result (bg_166, 2026-09-11; double-execution bug below)
+--------------------------------------------
+Package: ~/.cache/tensormark/ane/83b5e43e63b77cc548fb/ane_seg.mlpackage
+Builder run bg_161: N16/T1024 hidden-only, 358 s including conversion/load.
+Engine run: source-package open + CPU reference + three rounds, exit 0.
+Every round logged "ane prefill ok: K=16 T=1024 pos0=0" and ane_executed=true.
+
+  round   full-prefill wall_ms   tok/s   max_abs_logit_diff   relative_L2
+    0          5712.4           179.3         4.406346          0.459944
+    1          4950.9           206.8         4.406346          0.459944
+    2          4936.9           207.4         4.406346          0.459944
+
+All outputs were finite. Last-token top-1 matched on the one deterministic
+random-token prompt, repeated three times; this is NOT a corpus agreement
+rate. Relative L2 ~=46% is substantial drift. This run measures prefill only,
+not the additional decode error from the approximate lower-layer K/V cache.
+It used CPU tail layers/reprojection, not a concurrent CPU/GPU/ANE serving
+benchmark, and includes all in-forward work, unlike the earlier segment-only
+462 ms measurement. No throughput win or aggregate capacity gain is claimed.
+CoreML was configured CPUAndNeuralEngine; the counter proves execution through
+the shim without engine fallback, not per-operation hardware residency.
+
+Verdict: the ANE-enabled full-package execution blocker is cleared. Quality,
+decode continuation, real-model KV-emitting integration, concurrent capacity,
+and the third-unit controller remain separate gates before production use.
+The sanitizer diagnostic was cancelled by the user's stop request; no
+sanitizer-pass claim is made. Non-sanitized routing and CoreML fixture tests
+are the regression evidence for the fixes above.
+
+Final regression result (bg_167): dispatch/opt-in/position/fallback/destructor
+checks PASS; disabled/missing-package benchmark checks return failure without
+publishing throughput. The unaffected exact CPU path passes the dequantized
+Q4 HF oracle with 32/32 greedy matches and max logit error 1.1063e-4 (bar 0.02);
+cache replay, mixed continuation and invalid-input checks also PASS.
+
+Follow-up: double execution fixed (bg_168 / bg_169)
+--------------------------------------------------
+The successful-ANE counter was necessary but NOT sufficient: the final CPU
+fallback tested only !gpu_stack_done. After ANE [0,K) plus tail [K,L) had
+already completed, it ran the entire [0,L) stack again on that final hidden.
+The old 46% drift and ~207 tok/s results therefore were not measurements of
+the intended layer-split graph. Lower-layer approximate K/V cannot explain
+initial-prefill logit drift: those cached rows are used by later continuation,
+not by the already-computed prefix or different tail layers.
+
+Added an exact fake-ANE oracle (engine block 0 + engine tail). It failed before
+the fix with max logit difference 6.95373273; it passes afterward with 0.0.
+The fallback now requires !ane_done && !gpu_stack_done. The extended regression
+also checks exported actual K/V followed by decode, both with 0.0 maxdiff.
+
+Same package, input/seed and CPU-tail settings as bg_166; no package rebuild:
+  round   wall_ms   tok/s   segment_ms   kv_ms   tail_ms   logit_relL2
+    0     1654.2    619.0     713.242    96.309   839.398    0.062661
+    1     1386.2    738.7     479.044    89.911   813.392    0.062661
+    2     1342.2    762.9     482.109    86.955   770.898    0.062661
+Max absolute logit error: 0.594112, last-token top-1 matches (one prompt).
+Thus the ~480 ms segment timing is consistent with the earlier 462 ms probe;
+the CPU tail now dominates. Warm wall improved ~3.6x and relative L2 fell from
+0.459944 to 0.062661. These are serial integration diagnostics, not serving
+capacity or corpus-quality measurements.
+
+The claimed KV-output T1024 wall is also unproven: /tmp/kv_ladder.py lines
+22,48-49 used the old fp32 masked_fill/softmax graph. Retest actual KV export
+with the corrected fp16 additive-bias graph before attributing failure to
+materializing K/V outputs. The benchmark now optionally accepts [seed] and
+[decode_steps] after rounds, reporting teacher-forced continuation error
+separately from prefill timing (same token history on both paths).
+
+Actual K/V export and fused Metal suffix (bg_172--175)
+-----------------------------------------------------
+The corrected N16/T1024 KV graph DOES run. Cache key20e967ad3c0492dd74c0,
+TM_ANE_APPROX_KV=0. Actual K/V copy costs ~5ms versus ~90ms reconstruction.
+CPU-tail seed7 run: warm768.6/772.1tok/s, prefill relL2 0.062661,
+teacher-forced continuation16/16, decode relL2 0.034403.
+Per-layer GPU GEMMs: warm957.7/978.8tok/s, prefill relL2 0.062716,
+continuation16/16, decode relL2 0.033344; tail still563--575ms.
+
+Added tm_metal_llama_prefill_suffix(first_layer), reusing the original full
+stack's weight mapping and cache indices. The ANE branch now uses it for
+[K,L) when GPU prefill is enabled, otherwise the existing CPU/per-GEMM loop.
+Rejected/failed suffix work leaves x unchanged and drains submitted buffers
+before CPU fallback; each submitted command buffer's status is checked.
+Warm suffix-tail cost332--335ms, whole prefill1229.9/1267.2tok/s;
+prefill relL2 0.062856, one random prompt continuation15/16 (not16/16).
+All first-layer0/16/21 suffix/cache-isolation tests passed in fp32 and half.
+
+Broader smoke check: three distinct1024-token documentation inputs,32 forced
+continuation steps each (README, CONTRIBUTING, prior numerics notes). Actual
+KV + half Metal suffix:96/96 top1 matches across these checks, warm1270--1296
+tok/s, prefill relL2 0.017083--0.031531, decode relL2 0.021877--0.026600.
+This is a small teacher-forced smoke test, NOT a corpus quality guarantee.
+A random-input fp32-tail diagnostic gave31/32 and1139--1193tok/s; it does
+not establish an advantage over half because the earlier check had16 steps.
+The existing Metal precision default is unchanged.
+
+Final gates: full GPU stack, chunked continuation, greedy chain and hybrid
+pass in both precision modes; exact fake-ANE and real CPU Q4 oracles pass.
+See ANE.md for current usage, measured tables and lossless archive tooling.
+The inactive source package was compressed with checksum/restore-tested
+tools/model_archive.py (1,411,939,989 ->844,456,421bytes); active compiled
+runtime package remains expanded. Home-box offload is checksum-verified
+before removing a local redundant archive; never discard inactive models.

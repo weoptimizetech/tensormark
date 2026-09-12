@@ -1,0 +1,9 @@
+include build.sh
+include LICENSE NOTICE
+include engine.h version.h autograd.h attention.h kda.h optim.h rowops.h
+include _native/neural_demo.cpp
+include tests/test_packaging.py tests/smoke_installed.py
+# Never ship a stale, locally built extension in a source archive.
+global-exclude *.so *.pyd *.dylib *.pyc
+prune build
+prune tm

@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=77", "wheel", "pybind11"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tensormark"
+version = "0.4.1"
+description = "A focused C++23 neural engine with a PyTorch-compatible Python subset"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["numpy"]
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+
+[project.urls]
+Homepage = "https://weoptimizetech.com"
+Organization = "https://github.com/weoptimizetech"
+
+# Extension is compiled by setup.py (pybind11 + Accelerate); see also
+# build.sh for the in-repo dev build.
+
+[tool.setuptools]
+packages = ["tensormark"]
+zip-safe = false
+# Extension outputs are included by build_ext, not copied from the checkout.
+include-package-data = false

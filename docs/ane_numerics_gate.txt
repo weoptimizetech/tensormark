@@ -1,0 +1,106 @@
+ANE integration numerics gate (2026-09-10) — real TinyLlama weights from the
+shipped .tmq (Q4_0 dequant, exact quant.h semantics; tmq reader /tmp/tmq_np.py).
+
+Setup: per-layer CoreML fp16 graphs of the REAL transformer layer (RMSNorm eps
+1e-5, RoPE half-split theta 10000, GQA 32q/4kv, causal attention, SwiGLU),
+b1024 prefill shape, compared against a numpy fp32 reference computed from the
+same dequantized weights. Token ids = numpy default_rng(7).integers(1,32000,1024).
+
+SINGLE LAYER (layer 0)
+  GPU (CPU_AND_GPU): rel RMS 4.3e-4   (fp16-exact)
+  ANE (CPU_AND_NE):  rel RMS 6.9e-2
+  localization: attention half ANE 4.0e-2, MLP half ANE 4.8e-2 — both stages
+  contribute ~equally (fp16 accumulation, not a semantic bug; GPU identical
+  graph is 100x tighter)
+
+FULL 22-LAYER CHAIN (per-layer graphs chained, hidden states vs numpy fp32)
+  GPU chain: rel RMS 2.0e-3 — error growth 4.3e-4 -> 2.0e-3 is sub-linear
+             (sqrt-like); fp16 compounding is benign.
+  ANE chain: rel RMS 1.1e-1, max abs 3.68 (hidden absmax ~40), finite.
+             6.9e-2/layer -> 0.11 over 22 layers: the residual stream
+             self-corrects (NOT linear 1.5x, NOT sqrt 0.32x growth).
+  ANE chained throughput: 8.45 s / 1024 tok = 121 tok/s — per-predict Python
+  + ANE-compile overhead dominates (22 process-graph predicts). The
+  single-graph 22-layer GEMM stack runs the same weights at 763 tok/s
+  (1342 ms) — a fused single graph is the required shape for the ANE leg.
+
+BLOCKERS/next steps for real GPU+ANE integration (the +46-61% prefill prize):
+  1. Numerics: 11% RMS final-hidden error is survivable-looking but dirty;
+     must be validated end-to-end (logits/top-1 agreement vs engine) before
+     trusting ANE KV. If too dirty, options: fp32 tails for norm/softmax ops,
+     or ANE only for a LAYER SUBSET (errors then touch a fraction of layers).
+  2. Fused single-graph conversion OOMs on this 8 GB machine (2.2 GB fp16
+     trace copy). Path around it: merge the 22 per-layer .mlpackage specs
+     programmatically (rename vars, concat functions) — no full-model torch
+     trace needed. Spec-merge is the key unlock for both speed (763 t/s-class
+     ANE leg) and memory.
+  3. KV-cache export for autoregressive continuation is a later problem;
+     prefill-only first.
+
+Artifacts: /tmp/layers/L0..21.mlpackage (22 per-layer graphs), /tmp/full_ref.npz
+(numpy fp32 full reference), /tmp/chain_chunk.py (chunked chain runner),
+/tmp/tmq_np.py (lazy TMQ dequantizer), /tmp/full_ref.py.
+Conversion gotchas (coremltools 9, torch 2.14): fp16 mean/reduce upcasts to
+fp32 in MIL — compute RMSNorm fp32-internally and cast .half() explicitly;
+never name the graph output the same var as its input ("Var names ['x'] is
+used both as function's input and output"); einsum/mask axis order must match
+the reference exactly ((H,S,S) vs (S,H,S) bug class).
+STEADY-STATE CORRECTION (same day, follow-up):
+  The chained ANE rate (121 t/s) was compile-inflated: each per-layer model's
+  FIRST predict pays ~90 ms ANE-program caching. Steady-state per-layer predict
+  = 151 ms median (10 repeats, spread 137-181 ms) -> fused full-model ANE
+  estimate 22 x 151 ms = 3.3 s @1024 tok = ~308 tok/s. The GEMM-only stack is
+  61 ms/layer, so attention+norms+dispatch add ~90 ms/layer on ANE.
+  Addition arithmetic with ANE 308 t/s vs GPU 850 t/s: equal-wall ANE share
+  ~27% -> combined ~1100 tok/s prefill (+29% over GPU-only 850, +28% over
+  shipped hybrid 858). Real but smaller than the 1368 t/s the GEMM-stack
+  projection suggested (that number had no attention cost).
+
+QUALITY PROXY (fp32 lm_head + final norm on the chained hidden states):
+  top-1 next-token agreement ANE-hidden vs fp32-ref: 92.5% over 1024 positions
+  logit correlation 0.997, logit rel RMS 0.101, fp32 mean top1-margin 0.85.
+  92.5% top-1 agreement means roughly 1-in-13 next-token choices change —
+  likely too dirty for full-model ANE KV; layer-subset offload (ANE on a few
+  layers, exact elsewhere) or fp32 tails are the mitigations to test next.
+  Decisions and the spec-merge fusion plan recorded in memory + this doc.
+
+FP32 FALLBACK FINDING (decisive):
+  Built the identical layer graph in fp32 (compute_precision FLOAT32). ANE
+  fp32: rel RMS 0.00000 (exact) — but CPU_ONLY 130.3 ms == CPU_AND_NE 129.8 ms:
+  the ANE does NOT execute fp32 GEMMs; coremltools silently falls back to CPU.
+  GPU (CoreML fp32 graph): 77.9 ms. So the ANE's only mode is fp16-accumulated
+  (151 ms, 6.9e-2 RMS/layer, 92.5% top-1 agreement at depth 22) — there is no
+  clean-fast ANE configuration on M1.
+  Exactness is already available on the third unit without CoreML: the
+  engine's own CPU/AMX path (the shipped hybrid already adds exact CPU rows
+  to the GPU). The ANE addition therefore is a pure trade: +~28% prefill
+  throughput in exchange for fp16-dirty KV on the ANE token share (92.5%
+  top-1 agreement). Integration decision is a quality/perf tradeoff, not an
+  engineering unknown. On M1. Next unlock would be palettization-capable
+  silicon or accepting draft-tier precision (speculative decoding).
+
+FUSED-PACKAGE INVESTIGATION (2026-09-10, late): spec-merge of 22 per-layer
+graphs into one .mlpackage — verdict: BLOCKED on coremltools weight
+re-packing semantics, with an important positive result.
+  WHAT WORKED: byte-verified merge machinery — var rename across all 132-op
+  layer blocks is EXACT (renamed-L1 vs original L1: max abs 0.0); weight-blob
+  offsets verified correct for all 22 layers (offset=i*88,236,480+orig, all
+  shapes match); fused weight.bin byte-identical to the concat of per-layer
+  files; immediate (non-blob) consts identical.
+  WHAT FAILS: the CoreML runtime does not resolve fp16 blob weights by
+  (arbitrary offset into weight.bin) the way the spec text implies. A single
+  layer with offsets shifted by +88,236,480 and a prefixed blob file COMPILES
+  but produces wrong values (max abs 0.642 vs per-layer, deterministic on
+  CPU_ONLY too — so not an ANE quirk); shifting by 4096 fails to compile
+  (error -14). Offset semantics are evidently re-derived by the loader
+  (alignment/section rules not exposed), so hand-crafted weight files are
+  unreliable beyond the layout save_spec itself writes.
+  WORKING ALTERNATIVE (validated): per-layer packages chained through the
+  host are exact (GPU chain rel RMS 2.0e-3 vs fp32; ANE chain 1.1e-1, top-1
+  92.5%). The ANE lane therefore ships as per-layer predicts (121-308 t/s-class
+  with compile-cache warm; per-layer 151 ms steady) until weight packing is
+  solved by letting coremltools serialize the merged program itself (MIL
+  builder API with materialized weights, or ct.optimize-era APIs).
+  Build-time lesson for the anepack tool: per-layer conversion (~25 s/layer)
+  is a ONE-TIME cacheable cost; composition must use coremltools' own
+  serializer, not hand-packed blob files.

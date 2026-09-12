@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  engine:
+    name: Engine gates (macOS, Apple Silicon)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build engine gates and benchmarks
+        run: ./tensormark/build_llama.sh
+      - name: Hybrid controller gate
+        run: ./tensormark/build/test_hybrid
+
+  package:
+    name: Package build and tests (macOS, Apple Silicon)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build and install the package
+        env:
+          ARCHFLAGS: "-arch arm64"   # native-build engine; never universal2
+        run: python -m pip install ./tensormark
+      - name: Package tests
+        working-directory: tensormark
+        run: |
+          python -m pip install -U build wheel 'setuptools>=77' pybind11
+          python -m unittest discover -s tests -p "test_packaging.py" -v
+      - name: Installed smoke test
+        run: python -I tensormark/tests/smoke_installed.py
