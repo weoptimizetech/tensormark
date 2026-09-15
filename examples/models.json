@@ -1,0 +1,221 @@
+{
+  "_comment": [
+    "Model manifest. One entry per model family the engine is tested against.",
+    "",
+    "WHY THIS EXISTS: the artifacts on disk have different ROLES, and the roles were",
+    "undocumented — a '.gguf' looked like a spare copy of a '.tmq' when it is actually",
+    "the baseline instrument a published number depends on. Every artifact here carries",
+    "a 'role' and a 'required' flag, so 'can I delete this?' is answerable by reading.",
+    "",
+    "SOURCES are tried in order. 'dir' first by default: a folder you already have on",
+    "the machine or on the local network is the cheapest and fastest source, and it is",
+    "the only one that costs no bandwidth. Override with --root or $TM_MODEL_ROOT.",
+    "",
+    "Sizes are the download/transfer size, used to refuse a fetch that will not fit."
+  ],
+
+  "version": 1,
+
+  "dir_roots": [
+    "${TM_MODEL_ROOT}",
+    "~/WeOptimize/models",
+    "/Volumes/models"
+  ],
+
+  "converter_build": "tensormark/build_llama.sh",
+
+  "models": {
+    "tinyllama": {
+      "arch": "llama",
+      "dir": "tensormark/data/tinyllama",
+      "role": "The llama.cpp side of the published end-to-end table, and the fixture the grammar, embedding and HTTP-shim gates drive.",
+      "artifacts": {
+        "tinyllama_q40.tmq": {
+          "required": true,
+          "role": "the engine's weights (Q4_0)"
+        },
+        "tokenizer.model": {
+          "required": true,
+          "role": "SentencePiece vocabulary — the grammar mask iterates its pieces, so this one must be real even when the weights are a fixture"
+        },
+        "tinyllama-1.1b-chat-v1.0.Q4_0.gguf": {
+          "required": false,
+          "role": "BASELINE INSTRUMENT, not a spare copy. tensormark/bench_all.sh runs llama-bench on it to produce the published prefill/decode baselines, and it is the source the .tmq was converted from — deleting it makes two headline rows unverifiable"
+        },
+        "ref_logits32.npy": {
+          "required": false,
+          "role": "numerics reference for the fp32 gate"
+        }
+      },
+      "sources": [
+        {
+          "kind": "dir",
+          "sub": "tinyllama",
+          "note": "a folder containing tinyllama_q40.tmq + tokenizer.model"
+        },
+        {
+          "kind": "hf",
+          "repo": "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+          "files": ["model.safetensors", "tokenizer.model"],
+          "size_gb": 2.2,
+          "recipe": [
+            {"tool": "convert_tmq", "argv": ["{dir}/model.safetensors", "{dir}/tinyllama_q40.tmq", "q40", "asis"]}
+          ]
+        },
+        {
+          "kind": "hf",
+          "repo": "TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF",
+          "files": ["tinyllama-1.1b-chat-v1.0.Q4_0.gguf"],
+          "size_gb": 0.64,
+          "recipe": [
+            {"tool": "convert_gguf", "argv": ["{dir}/tinyllama-1.1b-chat-v1.0.Q4_0.gguf", "{dir}/tinyllama_q40.tmq", "{dir}/tokenizer.model"]}
+          ],
+          "note": "cheap route: the GGUF is a quarter the size of the safetensors and converts block-exact"
+        }
+      ]
+    },
+
+    "gpt2": {
+      "arch": "gpt2",
+      "dir": "tensormark/data/gpt2",
+      "role": "The from-scratch training and SFT path — the small model the autograd demo trains.",
+      "artifacts": {
+        "gpt2_q80.tmq": {"required": true, "role": "Q8_0 weights"},
+        "vocab.json": {"required": true, "role": "byte-level BPE vocabulary"},
+        "merges.txt": {"required": true, "role": "BPE merges"},
+        "model.safetensors": {"required": false, "role": "the conversion source; safe to drop once converted"}
+      },
+      "sources": [
+        {"kind": "dir", "sub": "gpt2"},
+        {
+          "kind": "hf",
+          "repo": "openai-community/gpt2",
+          "files": ["model.safetensors", "vocab.json", "merges.txt", "tokenizer.json"],
+          "size_gb": 0.55,
+          "recipe": [
+            {"tool": "convert_tmq", "argv": ["{dir}/model.safetensors", "{dir}/gpt2_q80.tmq", "q80", "transpose"]}
+          ],
+          "note": "transpose: GPT-2 stores Conv1D weights (in, out)"
+        }
+      ]
+    },
+
+    "qwen25": {
+      "arch": "qwen2",
+      "dir": "tensormark/data/qwen25",
+      "role": "The dense/GQA control at 3B — the baseline qwen35's hybrid path is measured against.",
+      "artifacts": {
+        "qwen25_3b_q40.tmq": {"required": true, "role": "Q4_0 weights (V=151936, L=36, H=16, KVH=2)"},
+        "qwen25_3b_q40.tokenizer.model": {"required": true, "role": "SentencePiece vocabulary"},
+        "config.json": {"required": true, "role": "shape metadata the loader reads"}
+      },
+      "sources": [
+        {"kind": "dir", "sub": "qwen25"},
+        {
+          "kind": "hf",
+          "repo": "Qwen/Qwen2.5-3B-Instruct",
+          "files": ["model.safetensors", "config.json", "tokenizer.json"],
+          "size_gb": 6.2,
+          "recipe": [
+            {"tool": "convert_tmq", "argv": ["{dir}/model.safetensors", "{dir}/qwen25_3b_q40.tmq", "q40", "asis"]}
+          ]
+        }
+      ]
+    },
+
+    "qwen35": {
+      "arch": "qwen35",
+      "dir": "tensormark/data/qwen35-0.8b",
+      "role": "The hybrid Gated-DeltaNet architecture — the only checkpoint that exercises gdn.h and block_linear.",
+      "artifacts": {
+        "qwen35_0.8b_q40.tmq": {"required": true, "role": "Q4_0 weights (24 layers: 6 full-attention + 18 linear)"},
+        "qwen35_0.8b_q40.f16lm.tmq": {"required": false, "role": "fp16 lm_head variant — the equal-precision instrument for the fp16 decode lane, not a duplicate of the Q4_0 file"},
+        "Qwen3.5-0.8B-Q4_0.gguf": {"required": false, "role": "the porting validation source named by docs/QWEN35_PORT.md; no script reads it, so this is the one artifact here that is documentation rather than an instrument"},
+        "config.json": {"required": true, "role": "layer_types / full_attention_interval — the hybrid geometry"}
+      },
+      "sources": [
+        {"kind": "dir", "sub": "qwen35-0.8b"},
+        {
+          "kind": "ollama",
+          "match": "qwen3\\.?5",
+          "note": "resolved against `ollama list` at plan time rather than a hardcoded tag"
+        },
+        {
+          "kind": "hf",
+          "repo": "unsloth/Qwen3.5-0.8B-GGUF",
+          "files": ["Qwen3.5-0.8B-Q4_0.gguf"],
+          "size_gb": 0.51,
+          "recipe": [
+            {"tool": "convert_gguf", "argv": ["{dir}/Qwen3.5-0.8B-Q4_0.gguf", "{dir}/qwen35_0.8b_q40.tmq", "{dir}/qwen35_0.8b_q40.tokenizer.model"]}
+          ]
+        }
+      ]
+    },
+
+    "qwen35-4b": {
+      "arch": "qwen35",
+      "dir": "tensormark/data/qwen35-4b",
+      "role": "Qwen3.5-4B — the NEWEST generation that has a variant this 8 GB host holds, and what `llama_chat_metal` loads when given no arguments. Same architecture as the 0.8B (Qwen3_5ForConditionalGeneration, head_dim 256, full_attention_interval 4, 3 linear : 1 full), one width wider, so it runs on the already-verified qwen35 path rather than needing a new port. Qwen3.8's smallest is the 27B (probed: 3.8-{2,4,8,14,32}B all absent).",
+      "artifacts": {
+        "qwen35_4b_q40.tmq": {
+          "required": true,
+          "role": "Q4_0 weights (32 layers: 8 full-attention + 24 linear, hidden 2560)"
+        },
+        "Qwen3.5-4B-Q4_0.gguf": {
+          "required": false,
+          "role": "the conversion source; keep only if you want to re-derive the .tmq or diff it against llama.cpp"
+        }
+      },
+      "sources": [
+        {"kind": "dir", "sub": "qwen35-4b"},
+        {
+          "kind": "hf",
+          "repo": "unsloth/Qwen3.5-4B-GGUF",
+          "files": ["Qwen3.5-4B-Q4_0.gguf"],
+          "also": [
+            {"repo": "Qwen/Qwen3.5-4B", "files": ["config.json"],
+             "why": "llama.h reads config.json beside the .tmq for the qwen35 geometry (layer_types, head_dim); the GGUF repo does not carry it"}
+          ],
+          "size_gb": 2.7,
+          "recipe": [
+            {"tool": "convert_gguf", "argv": ["{dir}/Qwen3.5-4B-Q4_0.gguf", "{dir}/qwen35_4b_q40.tmq", "{dir}/qwen35_4b_q40.tokenizer.model"]}
+          ],
+          "note": "Q4_0, not the Q4_K_M default tag — convert_gguf accepts Q4_0/Q8_0 block layouts block-exact and rejects K-quants by design"
+        }
+      ]
+    },
+
+    "qwen38-4b": {
+      "arch": "qwen35",
+      "dir": "tensormark/data/qwen38-4b",
+      "role": "A Qwen3.8 at a size this host can hold. The official Qwen3.8 line is 27B-only (probed: 3.8-{2,4,8,14,32}B are all absent; the 27B is 15.6 GB at Q4_0 and dense, so it needs ~16 GB of RAM), but the community distilled 3.8 into 4B and 9B — and the 4B distill is model_type=qwen3_5 with the SAME geometry as the Qwen3.5-4B already running here (32 layers, 8 full / 24 linear, hidden 2560, head_dim 256). Same port, no new work.",
+      "artifacts": {
+        "qwen38_4b_q6k.tmq": {
+          "required": true,
+          "role": "Q6_K weights (3.89 GB, 442 tensors). Q8_0 was tried first and does not fit this host: 5.03 GB of weights on 8 GB of unified memory drove 2.99 GB of the 4 GB swap into use and left the engine in uninterruptible I/O, because every pass re-reads the weight file from disk instead of holding it resident. Q6_K converts and runs — measured peak RSS 5.60 GB at the default auto-sized 16384 context, 4.71 GB at TM_CTX=4096; both are higher than the Qwen3.5-4B Q4_0 lane (4.64 GB), so drop to TM_CTX=4096 when a browser is open"
+        },
+        "Qwen3.8-4B-Q6_K.gguf": {
+          "required": false,
+          "role": "the conversion source (3.32 GB) — safe to drop once converted, and re-fetchable from the source below"
+        }
+      },
+      "sources": [
+        {"kind": "dir", "sub": "qwen38-4b"},
+        {
+          "kind": "hf",
+          "repo": "empero-ai/Qwen3.8-4B-Distill-GGUF",
+          "files": ["Qwen3.8-4B-Q6_K.gguf"],
+          "also": [
+            {"repo": "empero-ai/Qwen3.8-4B", "files": ["config.json"],
+             "why": "llama.h reads config.json beside the .tmq for the qwen3_5 geometry"}
+          ],
+          "size_gb": 3.4,
+          "recipe": [
+            {"tool": "convert_gguf", "argv": ["{dir}/Qwen3.8-4B-Q6_K.gguf", "{dir}/qwen38_4b_q6k.tmq", "{dir}/qwen38_4b_q6k.tokenizer.model"]}
+          ],
+          "note": "a community distill of 3.8, not an official release — the official line starts at 27B. The repo also ships Q4_K_M/Q5_K_M/Q8_0; Q8_0 is too large for this host and Q4_K_M/Q5_K_M use block layouts convert_gguf rejects, so Q6_K is the one that both fits and converts"
+        }
+      ]
+    }
+  }
+}

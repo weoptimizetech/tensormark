@@ -1,0 +1,38 @@
+TensorMark
+Copyright 2026 WeOptimize Tecnologia LTDA
+https://weoptimizetech.com
+
+WeOptimize-owned TensorMark code is licensed under the Apache License,
+Version 2.0. See LICENSE. This notice does not relicense externally obtained
+model weights, datasets, or other assets; such materials, when used, retain
+their own copyright notices and applicable terms.
+
+Third-party components
+======================
+
+The TensorMark source distribution contains no third-party source code. It
+builds against and depends on the following externally provided components,
+each governed by its own license and obtained separately by the builder or
+user:
+
+- **pybind11** (build-time Python binding header library), used under its
+  BSD-style license; fetched from PyPI as a declared build requirement.
+- **NumPy** (runtime dependency), used under its BSD 3-clause license;
+  fetched from PyPI as a declared dependency and not redistributed here.
+- **Apple Accelerate framework** (Accelerate/AMX/NEON), used as a system
+  framework on macOS at build and run time under the terms of the macOS and
+  Xcode software license agreements; it is not redistributed with this
+  project.
+- **Clang / Apple Command Line Tools** (build toolchain) and the **Metal**
+  framework where applicable, used under Apple's toolchain and system
+  software license agreements.
+
+Trademark notice
+================
+
+Apple, Mac, macOS, Metal and Apple Silicon are trademarks of Apple Inc.
+PyTorch is a trademark of the Linux Foundation. NumPy is a project of NumFOCUS.
+TensorMark and WeOptimize are marks of WeOptimize Tecnologia LTDA. This
+project is independent and is not endorsed by, or affiliated with, any of
+these parties; product names are used descriptively to identify compatibility
+and requirements.

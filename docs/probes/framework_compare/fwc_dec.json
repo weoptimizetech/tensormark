@@ -1,0 +1,25 @@
+{
+  "schema": "tensormark.framework-compare/1",
+  "task": "decode",
+  "tokens": 1024,
+  "gen_tokens": 64,
+  "rounds": 3,
+  "seed": 7,
+  "pytorch_device": "mps",
+  "pytorch_dtype": "float16",
+  "measurements": {
+    "tensormark-gpu-chain": {
+      "times_seconds": [
+        0.747399,
+        0.739836,
+        0.754781
+      ],
+      "tokens_per_run": 64,
+      "tokens_per_second": [
+        85.63029921099707,
+        86.50565801069426,
+        84.79280745010804
+      ]
+    }
+  }
+}
