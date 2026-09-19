@@ -1,0 +1,454 @@
+{
+ "_meta": {
+  "generated_by": "tensormark/collect_perf_evidence.py",
+  "generated_utc": "2026-09-18T00:40:49Z",
+  "machine": "Apple M1 MacBook, 8 GB unified memory, macOS, CPU path at 4 threads",
+  "method": "medians over the recorded rounds of each interleaved same-window pair; no value is typed in",
+  "missing": [
+   "finetuning (sft_steps.txt)"
+  ]
+ },
+ "design_point": {
+  "_prefill_pytorch_note": "not in the retained probes: fwc_pre.json measured the tensormark leg only",
+  "_probe": "framework_compare",
+  "aggregation": "mean of runs",
+  "decode_aggregation": "median of runs",
+  "decode_pytorch": 10.65,
+  "decode_rounds": 2,
+  "decode_speedup": 7.13,
+  "decode_tensormark": 75.9,
+  "prefill_pytorch": null,
+  "prefill_rounds": 5,
+  "prefill_tensormark": 913.8,
+  "prefill_tensormark_median": 950.8,
+  "train_na_reason": "full-parameter training needs ~16.4 GiB of weights+grads+AdamW state at fp32 \u2014 exceeds this machine by design; the measured feasible alternative is the finetune task"
+ },
+ "inference_bench": {
+  "decode_llama": {
+   "age_s": 0.0,
+   "files": [
+    "llm_llama_decode.txt"
+   ],
+   "median": 65.88,
+   "mtime": 1789691935.416853,
+   "rounds": [
+    68.64,
+    65.88,
+    64.8
+   ],
+   "unit": "tok/s"
+  },
+  "decode_mlx": {
+   "age_s": 0.0,
+   "files": [
+    "llm_mlx_decode.txt"
+   ],
+   "median": 46.0,
+   "mtime": 1789691983.4649954,
+   "rounds": [
+    46.0,
+    45.6,
+    50.8
+   ],
+   "unit": "tok/s"
+  },
+  "decode_ours": {
+   "age_s": 0.0,
+   "files": [
+    "llm_ours_decode.txt"
+   ],
+   "median": 71.884,
+   "mtime": 1789691923.7914693,
+   "rounds": [
+    75.753,
+    71.884,
+    70.462
+   ],
+   "unit": "tok/s"
+  },
+  "decode_speedup": 1.09,
+  "decode_speedup_mlx": 1.56,
+  "prefill_llama": {
+   "age_s": 0.0,
+   "files": [
+    "llm_llama_prefill.txt"
+   ],
+   "median": 757.06,
+   "mtime": 1789691951.6272793,
+   "rounds": [
+    723.25,
+    810.91,
+    757.06
+   ],
+   "unit": "tok/s"
+  },
+  "prefill_mlx": {
+   "age_s": 0.0,
+   "files": [
+    "llm_mlx_prefill.txt"
+   ],
+   "median": 549.1,
+   "mtime": 1789691983.464515,
+   "rounds": [
+    542.4,
+    557.5,
+    549.1
+   ],
+   "unit": "tok/s"
+  },
+  "prefill_ours": {
+   "age_s": 0.0,
+   "files": [
+    "llm_ours_prefill.txt"
+   ],
+   "median": 777.0,
+   "mtime": 1789691854.2286608,
+   "rounds": [
+    840.5,
+    713.5
+   ],
+   "unit": "tok/s"
+  },
+  "prefill_speedup": 1.03,
+  "prefill_speedup_mlx": 1.42
+ },
+ "kernels": {
+  "attn_decode_H12_dh64_S128": {
+   "ours_ms": 0.0299,
+   "ours_rounds": [
+    0.0298,
+    0.0302,
+    0.0299
+   ],
+   "ratio_max": 35.23,
+   "ratio_min": 22.49,
+   "ratio_rounds": [
+    35.2315,
+    22.4868,
+    34.1438
+   ],
+   "sign_stable": true,
+   "speedup": 34.14,
+   "torch_compile_ms": 1.0209,
+   "torch_rounds": [
+    1.0499,
+    0.6791,
+    1.0209
+   ]
+  },
+  "attn_decode_H12_dh64_S2048": {
+   "ours_ms": 0.7304,
+   "ours_rounds": [
+    0.7338,
+    0.7194,
+    0.7304
+   ],
+   "ratio_max": 2.36,
+   "ratio_min": 1.88,
+   "ratio_rounds": [
+    1.8806,
+    2.3631,
+    2.0746
+   ],
+   "sign_stable": true,
+   "speedup": 2.07,
+   "torch_compile_ms": 1.5153,
+   "torch_rounds": [
+    1.38,
+    1.7,
+    1.5153
+   ]
+  },
+  "attn_decode_H12_dh64_S512": {
+   "ours_ms": 0.1184,
+   "ours_rounds": [
+    0.1182,
+    0.12,
+    0.1184
+   ],
+   "ratio_max": 9.4,
+   "ratio_min": 5.54,
+   "ratio_rounds": [
+    7.3799,
+    5.5383,
+    9.4029
+   ],
+   "sign_stable": true,
+   "speedup": 7.37,
+   "torch_compile_ms": 0.8723,
+   "torch_rounds": [
+    0.8723,
+    0.6646,
+    1.1133
+   ]
+  },
+  "conv1x1_C96_32x32": {
+   "ours_ms": 0.021,
+   "ours_rounds": [
+    0.0207,
+    0.0225,
+    0.021
+   ],
+   "ratio_max": 1.59,
+   "ratio_min": 1.43,
+   "ratio_rounds": [
+    1.5894,
+    1.4311,
+    1.5524
+   ],
+   "sign_stable": true,
+   "speedup": 1.55,
+   "torch_compile_ms": 0.0326,
+   "torch_rounds": [
+    0.0329,
+    0.0322,
+    0.0326
+   ]
+  },
+  "dw3x3_C96_32x32": {
+   "ours_ms": 0.0297,
+   "ours_rounds": [
+    0.0297,
+    0.0298,
+    0.0297
+   ],
+   "ratio_max": 142.14,
+   "ratio_min": 124.87,
+   "ratio_rounds": [
+    142.138,
+    124.8691,
+    141.5926
+   ],
+   "sign_stable": true,
+   "speedup": 141.59,
+   "torch_compile_ms": 4.2053,
+   "torch_rounds": [
+    4.2215,
+    3.7211,
+    4.2053
+   ]
+  },
+  "gelu_fused_N196608": {
+   "ours_ms": 0.2074,
+   "ours_rounds": [
+    0.2076,
+    0.2073,
+    0.2074
+   ],
+   "ratio_max": 2.2,
+   "ratio_min": 1.71,
+   "ratio_rounds": [
+    1.7452,
+    1.7149,
+    2.203
+   ],
+   "sign_stable": true,
+   "speedup": 1.75,
+   "torch_compile_ms": 0.3623,
+   "torch_rounds": [
+    0.3623,
+    0.3555,
+    0.4569
+   ]
+  },
+  "gemm_T1_K1024_N1024": {
+   "ours_ms": 0.0275,
+   "ours_rounds": [
+    0.0298,
+    0.0275,
+    0.0273
+   ],
+   "ratio_max": 1.46,
+   "ratio_min": 1.4,
+   "ratio_rounds": [
+    1.396,
+    1.4509,
+    1.4579
+   ],
+   "sign_stable": true,
+   "speedup": 1.45,
+   "torch_compile_ms": 0.0399,
+   "torch_rounds": [
+    0.0416,
+    0.0399,
+    0.0398
+   ]
+  },
+  "gemm_T1_K256_N256": {
+   "ours_ms": 0.0019,
+   "ours_rounds": [
+    0.0022,
+    0.0019,
+    0.0019
+   ],
+   "ratio_max": 9.42,
+   "ratio_min": 8.0,
+   "ratio_rounds": [
+    8.0,
+    9.4211,
+    9.0
+   ],
+   "sign_stable": true,
+   "speedup": 9.26,
+   "torch_compile_ms": 0.0176,
+   "torch_rounds": [
+    0.0176,
+    0.0179,
+    0.0171
+   ]
+  },
+  "gemm_T1_K4096_N4096": {
+   "ours_ms": 1.6465,
+   "ours_rounds": [
+    1.6465,
+    1.7784,
+    1.611
+   ],
+   "ratio_max": 1.07,
+   "ratio_min": 0.96,
+   "ratio_rounds": [
+    1.0401,
+    0.9632,
+    1.0694
+   ],
+   "sign_stable": false,
+   "speedup": 1.04,
+   "torch_compile_ms": 1.713,
+   "torch_rounds": [
+    1.7125,
+    1.713,
+    1.7228
+   ]
+  },
+  "gemm_T1_K64_N64": {
+   "ours_ms": 0.0002,
+   "ours_rounds": [
+    0.0002,
+    0.0002,
+    0.0002
+   ],
+   "ratio_max": 55.0,
+   "ratio_min": 53.5,
+   "ratio_rounds": [
+    53.5,
+    55.0,
+    54.5
+   ],
+   "sign_stable": true,
+   "speedup": 54.5,
+   "torch_compile_ms": 0.0109,
+   "torch_rounds": [
+    0.0107,
+    0.011,
+    0.0109
+   ]
+  },
+  "gemm_T256_K1024_N1024": {
+   "ours_ms": 0.4279,
+   "ours_rounds": [
+    0.6485,
+    0.4147,
+    0.4279
+   ],
+   "ratio_max": 1.06,
+   "ratio_min": 0.66,
+   "ratio_rounds": [
+    0.6617,
+    1.0432,
+    1.0626
+   ],
+   "sign_stable": false,
+   "speedup": 1.01,
+   "torch_compile_ms": 0.4326,
+   "torch_rounds": [
+    0.4291,
+    0.4326,
+    0.4547
+   ]
+  },
+  "gemm_T256_K256_N256": {
+   "ours_ms": 0.0306,
+   "ours_rounds": [
+    0.0325,
+    0.0306,
+    0.0305
+   ],
+   "ratio_max": 1.4,
+   "ratio_min": 1.31,
+   "ratio_rounds": [
+    1.3077,
+    1.402,
+    1.4033
+   ],
+   "sign_stable": true,
+   "speedup": 1.4,
+   "torch_compile_ms": 0.0428,
+   "torch_rounds": [
+    0.0425,
+    0.0429,
+    0.0428
+   ]
+  },
+  "gemm_T256_K4096_N4096": {
+   "ours_ms": 17.1253,
+   "ours_rounds": [
+    17.1253,
+    15.842,
+    17.1888
+   ],
+   "ratio_max": 1.01,
+   "ratio_min": 0.91,
+   "ratio_rounds": [
+    0.9099,
+    0.9944,
+    1.0063
+   ],
+   "sign_stable": false,
+   "speedup": 0.92,
+   "torch_compile_ms": 15.7537,
+   "torch_rounds": [
+    15.5826,
+    15.7537,
+    17.2969
+   ]
+  },
+  "gemm_T256_K64_N64": {
+   "ours_ms": 0.003,
+   "ours_rounds": [
+    0.0032,
+    0.003,
+    0.0028
+   ],
+   "ratio_max": 5.5,
+   "ratio_min": 4.77,
+   "ratio_rounds": [
+    4.875,
+    4.7667,
+    5.5
+   ],
+   "sign_stable": true,
+   "speedup": 5.13,
+   "torch_compile_ms": 0.0154,
+   "torch_rounds": [
+    0.0156,
+    0.0143,
+    0.0154
+   ]
+  }
+ },
+ "training": {
+  "mnist_ours": 2134.0,
+  "mnist_torch_compile": 1607.0,
+  "ours_rounds": [
+   1947.0,
+   2134.0,
+   2149.0
+  ],
+  "speedup": 1.33,
+  "torch_rounds": [
+   1605.0,
+   1607.0,
+   1612.0
+  ]
+ }
+}

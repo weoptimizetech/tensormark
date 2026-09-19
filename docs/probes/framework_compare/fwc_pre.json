@@ -1,0 +1,30 @@
+{
+  "schema": "tensormark.framework-compare/1",
+  "task": "prefill",
+  "tokens": 1024,
+  "gen_tokens": 64,
+  "rounds": 5,
+  "seed": 7,
+  "pytorch_device": "mps",
+  "pytorch_dtype": "float16",
+  "measurements": {
+    "tensormark-metal-hybrid": {
+      "framework": "tensormark-metal+hybrid0.25",
+      "times_seconds": [
+        1.32988554,
+        1.18333654,
+        1.0770135,
+        1.0504001699999999,
+        1.01574546
+      ],
+      "tokens_per_run": 1024,
+      "tokens_per_second": [
+        769.9910775779997,
+        865.3497677000661,
+        950.7773115193078,
+        974.8665596655417,
+        1008.1265832091437
+      ]
+    }
+  }
+}

@@ -1,0 +1,20 @@
+include build.sh
+include LICENSE NOTICE
+# The bindings compile tensormark.cpp, whose LOCAL-include closure reaches every
+# engine header listed here (session.h -> llama.h -> quant/tmq/gdn/safetensors/...).
+# A header missing from this list is not merely a failed gate: the archive cannot
+# compile, so the source distribution is uninstallable. Keep it in step with the
+# closure test (tests/test_packaging.py::test_native_local_include_closure), which
+# walks these includes and refuses the archive when one does not resolve.
+include engine.h version.h autograd.h attention.h kda.h optim.h rowops.h
+include session.h llama.h tmtok.h tmsample.h
+include quant.h tmq.h gdn.h safetensors.h safetensors_parse.h
+include bpe.h sp_tokenizer.h gemv_pool.h tm_tune.h llama_gpu_api.h
+# train_engine.h is staged next to it by setup.py's release tree (it travels with
+# neural_demo.cpp, which includes it as "tensormark/train_engine.h").
+include _native/neural_demo.cpp
+include tests/test_packaging.py tests/smoke_installed.py
+# Never ship a stale, locally built extension in a source archive.
+global-exclude *.so *.pyd *.dylib *.pyc
+prune build
+prune tm
