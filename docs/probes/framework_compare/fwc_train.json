@@ -1,0 +1,12 @@
+{
+  "schema": "tensormark.framework-compare/1",
+  "task": "train",
+  "tokens": 1024,
+  "gen_tokens": 64,
+  "rounds": 5,
+  "seed": 7,
+  "pytorch_device": "mps",
+  "pytorch_dtype": "float16",
+  "measurements": {},
+  "na_reason": "full-parameter training needs ~16.4 GiB of weights+grads+AdamW state at fp32 \u2014 exceeds this machine by design; the measured feasible alternative is the finetune task"
+}

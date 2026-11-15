@@ -1,0 +1,41 @@
+build/
+mnist/
+*.DSYM
+*.dSYM/
+crash_dump*
+*.log
+dist/
+.DS_Store
+.coverage.*
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.so
+*.o
+*.pyc
+__pycache__/
+*.bak
+*.egg-info/
+tensormark/dist/
+tensormark/tm/
+tensormark/spike/
+tensormark/build/
+# No trailing slash: it matches a DIRECTORY, and a worktree's data/ is a
+# symlink to the shared weights — which is not a directory to gitignore.
+tensormark/data
+tensormark/out/
+bench_inference
+bench_inference_fast
+ml_system
+neural_demo
+.coverage
+
+# Build trees configured beside the tracked ones.
+build-*/
+
+# libFuzzer artifacts
+tensormark/fuzz/fuzz_safetensors
+tensormark/fuzz/fuzz_tokenizer
+tensormark/fuzz/corpus/
+build-asan/
+build-cpu-qa/

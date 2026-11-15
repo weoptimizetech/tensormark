@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=77", "wheel", "pybind11"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tensormark"
+version = "0.4.1"
+description = "A focused C++23 neural engine with a PyTorch-compatible Python subset"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["numpy"]
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+
+[project.urls]
+Homepage = "https://weoptimizetech.com"
+Organization = "https://github.com/weoptimizetech"
+
+# Extension is compiled by setup.py (pybind11 + Accelerate); see also
+# build.sh for the in-repo dev build.
+
+[tool.setuptools]
+packages = ["tensormark"]
+zip-safe = false
+# Extension outputs are included by build_ext, not copied from the checkout.
+include-package-data = false
+
+[tool.setuptools.package-data]
+# PEP 561: the generated extension stub and the package stub ship with the
+# wheel, so an installed tensormark is typed for its users too.
+tensormark = ["py.typed", "*.pyi"]
+
+[tool.mypy]
+# `python setup.py build` leaves a second copy of the package under build/
+# (gitignored), and mypy then refuses the run with "Duplicate module named
+# tensormark" — a local build must never be able to fail the type gate.
+exclude = '(^|/)(build|dist|data)/'
+
+[[tool.mypy.overrides]]
+# The generated extension stub: pybind11 emits gather_rows' ArrayLike overload
+# ahead of its Sequence[int] one, and ArrayLike already covers a list of ints.
+# The order is the binding's, regenerated on every change — not ours to edit.
+module = "tensormark.tensormark"
+disable_error_code = ["overload-cannot-match"]
+
+[[tool.mypy.overrides]]
+# Untyped by nature, each named so the exemption is visible:
+#   tflite         — flatbuffers-generated reader; ships no type information.
+#   blazeface_ref  — the upstream PyTorch BlazeFace reference the eye demos
+#                    fetch beside them for comparison; never vendored here.
+#   mlx_lm         — optional comparison baseline (bench_mlx.py); not a dependency.
+#   setuptools, jsonschema — typed only by separate stub packages, and the gate
+#                    runs the system mypy (pre-commit `language: system`).
+module = ["tflite", "tflite.*", "blazeface_ref", "mlx_lm", "mlx_lm.*", "setuptools", "setuptools.*", "jsonschema", "jsonschema.*"]
+ignore_missing_imports = true

@@ -1,0 +1,39 @@
+GPU+ANE addition sweep (2026-09-09) — phase-1 values before any controller,
+mirroring the CPU-into-GPU sequence: solos first, then concurrent pairs, each
+side measured under the other's load. GPU leg = the real engine, pure-GPU
+prefill (TM_LLAMA_HYBRID=0 TM_PREFILL_GPU=1), hybrid_bench T tokens.
+ANE leg = /tmp/stack_b1024.mlpackage (22-layer GEMM stack, fp16, CPU_AND_NE),
+b1024 forward = 1024 tokens. Median of rounds/predicts.
+
+SOLOS
+  GPU T=1024 : 1205-1213 ms  -> 850 tok/s
+  GPU T=2048 : 2541-2556 ms  -> 806 tok/s
+  ANE b1024  : median 1342 ms -> 763 tok/s (per-predict spread 1241-1574 ms)
+
+CONCURRENT PAIRS (effective = (T_gpu+1024)/max(wall_gpu, wall_ane))
+  pair A, 50/50 split (GPU 1024 + ANE 1024):
+    GPU 847 tok/s (100% of solo) | ANE 684 tok/s (90% of solo)
+    -> effective 1368 tok/s
+  pair B, 67/33 split (GPU 2048 + ANE 1024):
+    GPU 804 tok/s (100% of solo) | ANE 730 tok/s (96% of solo)
+    -> effective 1205 tok/s
+
+VALUES (vs references)
+  GPU alone            850 tok/s   (1.00x)
+  shipped hybrid (CPU+GPU) 858 tok/s   (1.01x)
+  GPU+ANE 67/33       1205 tok/s   (1.42x GPU)
+  GPU+ANE 50/50       1368 tok/s   (1.61x GPU, 1.59x shipped hybrid)
+
+Reading: the GPU leg is untouched by concurrent ANE work (100% retention at
+both split points); ANE loses 4-10%. Equal-wall balance sits near ANE share
+~50% at T=2048-scale prompts. NOTE the ANE per-predict spread (~15%) is real
+variance, not contention — pair A and pair B ANE medians straddle the solo.
+
+This measures COEXISTENCE + addition arithmetic on disjoint token shares, not
+an integrated engine: the ANE stack is a GEMM-chain stand-in (no attention,
+norms, KV writeback). The integration gaps remain: full-model CoreML graph
+with matching numerics, KV-cache writeback, static shapes, 2.2 GB fp16
+duplicate weights on the 8 GB machine. Next step after integration: split
+controller (same ESC-on-wall-time method as the CPU/GPU split).
+
+Reproduce: /tmp/ane_gpu_sweep.sh (script), /tmp/ane_pair.py (ANE runner).

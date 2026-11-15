@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  engine:
+    name: Engine gates (macOS, Apple Silicon)
+    runs-on: macos-15
+    # The ASan phase is bounded inside build_llama.sh, so this is a backstop for
+    # anything unforeseen: a hung job burns the 6-hour default before anyone sees it.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # The README is generated in part, so it is checked like code. Two things
+      # can rot silently: a number that no longer matches docs/perf_evidence.json,
+      # and a reference to a file this tree does not contain — the latter is how
+      # a private-only filename (docs/ANE_M1_LESSONS.md, absent here while
+      # docs/ANE.md is what shipped) reaches readers as a dead link.
+      - name: Docs consistency (perf tables, links, path references)
+        run: |
+          python3 tensormark/check_readme_perf.py
+          python3 tensormark/check_readme_links.py
+          # The API reference is generated from the source, so it is checked
+          # the way the perf tables are: a signature that has drifted from the
+          # code is worse than no signature, because it gets trusted.
+          python3 tensormark/gen_api_docs.py --check
+          # Local-only, no network: catches a manifest that no longer parses or
+          # lost a key, which nothing else would notice until someone fetched.
+          python3 examples/fetch_models.py --list
+      - name: Build engine gates and benchmarks
+        env:
+          # The attention-gate split's plain run only catches the overrun when the
+          # allocator happens to place the buffer unluckily (~half of runs), so CI
+          # also builds it under AddressSanitizer, which catches it on every run.
+          # Costs minutes of compile; see tensormark/test_llama_attn_gate.cpp.
+          TM_ASAN_GATES: "1"
+        run: ./tensormark/build_llama.sh
+      - name: Hybrid controller gate
+        run: ./tensormark/build/test_hybrid
+      # The gates that assert a reply both PARSES and VALIDATES against a schema
+      # need a model. A generated fixture supplies one: decoding under a grammar
+      # masks every token that would leave the language, whatever the logits say,
+      # so the assertion is about enforcement — and random weights exercise it as
+      # well as a checkpoint does. Only the vocabulary has to be real (the mask is
+      # built over the pieces and the ids index the embeddings), and that is 488 KB
+      # rather than 590 MB. Both preparation steps are non-fatal on purpose: if the
+      # download or generation fails the gates fall back to exit 77 = SKIP, so a
+      # network outage cannot masquerade as a passing capability gate.
+      - name: Grammar, structured-output and embedding gates
+        run: |
+          # The capability gate validates replies with `jsonschema`. pip installs it
+          # into the setup-python interpreter above; on the runner's system Python
+          # the install is refused outright (PEP 668), which silently reduced this
+          # gate to a skip on the first two attempts.
+          python3 -m pip install --quiet jsonschema
+          # In CI a SKIP is a failure: the fixture is prepared right here, so a skip
+          # means the preparation broke and the gate proved nothing.
+          export TM_GATES_REQUIRE=1
+          python3 examples/fetch_model.py --tokenizer-only || true
+          TOK=tensormark/data/tinyllama/tokenizer.model
+          if [ -f "$TOK" ]; then
+            python3 tensormark/gen_tiny_llama.py "$TOK" /tmp/tiny_fixture || true
+          fi
+          if [ -f /tmp/tiny_fixture/model.tmq ]; then
+            export TM_TEST_MODEL=/tmp/tiny_fixture/model.tmq
+            export TM_TEST_TOKENIZER="$TOK"
+          fi
+          ./tensormark/run_grammar_gates.sh
+          # The example is exercised here too, model-free, so that it cannot rot.
+          # With no .tmq in CI it takes its documented "no checkpoint" path: the
+          # schema compile and the parses-vs-validates contrast still run, the
+          # model sections announce themselves as skipped, and it exits 0.
+          python3 examples/three_capabilities.py
+
+  package:
+    name: Package build and tests (macOS, Apple Silicon)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build and install the package
+        env:
+          ARCHFLAGS: "-arch arm64"   # native-build engine; never universal2
+        run: python -m pip install ./tensormark
+      - name: Package tests
+        working-directory: tensormark
+        run: |
+          python -m pip install -U build wheel 'setuptools>=77' pybind11
+          python -m unittest discover -s tests -p "test_packaging.py" -v
+      - name: Installed smoke test
+        run: python -I tensormark/tests/smoke_installed.py
